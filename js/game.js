@@ -318,7 +318,7 @@
 
     _clampVerticalCam() {
       // Allow looking up into sky/canopies and down across meadow slopes
-      this.camY = Math.max(-210, Math.min(205, this.camY));
+      this.camY = Math.max(-375, Math.min(265, this.camY));
     }
 
     _requestLockSafely() {
@@ -760,6 +760,7 @@
         { dist: 100, label: "1", halfW: 5.5 * ts },
         { dist: 200, label: "2", halfW: 8.0 * ts },
         { dist: 300, label: "3", halfW: 10.5 * ts },
+        { dist: 400, label: "4", halfW: 13.0 * ts },
       ];
 
       ctx.strokeStyle = lineColor;
