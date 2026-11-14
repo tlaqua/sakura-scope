@@ -24,7 +24,7 @@
       id: 1,
       name: "Distant Ridge",
       parallax: 0.42,
-      vParallax: 0.45,
+      vParallax: 0.72,
       scale: 0.44,
       nominalDist: 315,
       distJitter: 18,
@@ -36,7 +36,7 @@
       id: 2,
       name: "Far Slope",
       parallax: 0.62,
-      vParallax: 0.65,
+      vParallax: 0.82,
       scale: 0.64,
       nominalDist: 210,
       distJitter: 12,
@@ -48,7 +48,7 @@
       id: 3,
       name: "Midground Grove",
       parallax: 0.82,
-      vParallax: 0.84,
+      vParallax: 0.91,
       scale: 0.85,
       nominalDist: 130,
       distJitter: 10,
@@ -742,7 +742,10 @@
       // If aiming just above a hillside to use a BDC tick, look along the vertical drop line
       for (const testDist of [130, 210, 315]) {
         const dropPx = dropCanonicalFn(testDist) * tickScale;
-        const tickRes = this._sampleEnvDistanceAt(camX, camY, dropPx / scopeScale, scopeScale);
+        //const tickRes = this._sampleEnvDistanceAt(camX, camY, dropPx / scopeScale, scopeScale);
+        const tickRes =
+          this._sampleEnvDistanceAt(camX, camY, baseOff, scopeScale) ??
+          this._sampleEnvDistanceAt(camX, camY, baseOff + 22, scopeScale);
         if (tickRes !== null && Math.abs(tickRes - testDist) < 45) {
           this.lastRangeReadout = tickRes;
           return `${tickRes}m`;
