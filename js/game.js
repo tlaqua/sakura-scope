@@ -64,6 +64,10 @@
       this.scopeScale = 1;
       this.tickScale = 1;
 
+      this.coarseQuery = window.matchMedia ? window.matchMedia("(pointer: coarse)") : null;
+      this.fullScreenMode = false;
+      this._detectInputMode();
+
       this.camX = 0;
       this.camY = 0;
       this.recoilY = 0;
@@ -107,6 +111,18 @@
       requestAnimationFrame((t) => this._loop(t));
     }
 
+    _detectInputMode() {
+      const coarse = this.coarseQuery ? this.coarseQuery.matches : false;
+      const smallTouch = navigator.maxTouchPoints > 0 && Math.min(window.innerWidth, window.innerHeight) <= 1024;
+      this._setFullScreenMode(coarse || smallTouch);
+    }
+
+    _setFullScreenMode(enabled) {
+      if (this.fullScreenMode === enabled) return;
+      this.fullScreenMode = enabled;
+      document.body.classList.toggle("touch-fullscreen", enabled);
+    }
+
     _loadNumber(key, fallback) {
       try {
         const val = parseFloat(localStorage.getItem(key));
@@ -143,6 +159,10 @@
 
     _bindEvents() {
       window.addEventListener("resize", () => this._resize());
+
+      if (this.coarseQuery && this.coarseQuery.addEventListener) {
+        this.coarseQuery.addEventListener("change", () => this._detectInputMode());
+      }
 
       document.getElementById("btn-start").addEventListener("click", (e) => {
         e.stopPropagation();
@@ -191,6 +211,7 @@
 
       window.addEventListener("mousemove", (e) => {
         if (this.state !== STATE.PLAYING) return;
+        if (this.fullScreenMode || performance.now() - this.lastTouchEndAt < 600) return;
 
         if (this.pointerLocked) {
           const dx = Math.max(-90, Math.min(90, e.movementX || 0));
@@ -223,7 +244,7 @@
         if (e.button !== 0 || this.state !== STATE.PLAYING) return;
         if (performance.now() - this.lastTouchEndAt < 450) return;
         window.SakuraAudio.init();
-        if (!this.pointerLocked && this.scopeCanvas.requestPointerLock) {
+        if (!this.fullScreenMode && !this.pointerLocked && this.scopeCanvas.requestPointerLock) {
           try {
             const p = this.scopeCanvas.requestPointerLock();
             if (p && p.catch) p.catch(() => {});
@@ -231,6 +252,17 @@
         }
         this._attemptShot();
       });
+
+      // Switch seamlessly into clear full-screen mode if played via touch screen
+      window.addEventListener(
+        "touchstart",
+        () => {
+          this._setFullScreenMode(true);
+          this.edgeVelX = 0;
+          this.edgeVelY = 0;
+        },
+        { passive: true }
+      );
 
       this.scopeCanvas.addEventListener(
         "touchstart",
@@ -294,11 +326,11 @@
     }
 
     _clampVerticalCam() {
-      // Generous headroom for aiming above 300m+ ridges & canopies
       this.camY = Math.max(-375, Math.min(265, this.camY));
     }
 
     _requestLockSafely() {
+      if (this.fullScreenMode) return;
       if (this.scopeCanvas.requestPointerLock) {
         try {
           const p = this.scopeCanvas.requestPointerLock();
@@ -535,7 +567,7 @@
         }
         this.timePhase = this.timePhase * this.timePhase * (3 - 2 * this.timePhase);
 
-        if (!this.pointerLocked && !this.touchActive) {
+        if (!this.fullScreenMode && !this.pointerLocked && !this.touchActive) {
           this.camX += (this.edgeVelX * this.sensitivity * dt) / Math.max(0.5, this.scopeScale);
           this.camY += (this.edgeVelY * this.sensitivity * dt) / Math.max(0.5, this.scopeScale);
           this._clampVerticalCam();
@@ -554,7 +586,7 @@
       const windLevel = window.SakuraAudio.getWindLevel(timeSec);
       window.SakuraAudio.updateWind(timeSec, this.timePhase);
 
-      const halfSpanWorldW = (this.W * 0.5) / this.scopeScale;
+      const halfSpanWorldW = (this.W * 0.5) / this.scopeScale + (this.fullScreenMode ? 180 : 0);
       this.world.update(dt, this.camX, this.camY, halfSpanWorldW, this.timePhase, windLevel, this.kills);
 
       if (this.state === STATE.PLAYING) {
@@ -576,38 +608,41 @@
       const renderCamX = this.camX + swayX + this.recoilX;
       const renderCamY = this.camY + swayY + this.recoilY;
 
-      const bgCtx = this.bgCtx;
-      bgCtx.clearRect(0, 0, this.W, this.H);
-      this.world.renderPeripheral(
-        bgCtx,
-        this.W,
-        this.H,
-        renderCamX,
-        renderCamY,
-        this.scopeScale * 0.56,
-        this.timePhase,
-        timeSec,
-        windLevel
-      );
+      if (!this.fullScreenMode) {
+        const bgCtx = this.bgCtx;
+        bgCtx.clearRect(0, 0, this.W, this.H);
+        this.world.renderPeripheral(
+          bgCtx,
+          this.W,
+          this.H,
+          renderCamX,
+          renderCamY,
+          this.scopeScale * 0.56,
+          this.timePhase,
+          timeSec,
+          windLevel
+        );
 
-      const t = this.timePhase;
-      const bgR = Math.round(48 + (18 - 48) * t);
-      const bgG = Math.round(36 + (16 - 36) * t);
-      const bgB = Math.round(44 + (28 - 44) * t);
-      const bgA = 0.18 + (0.34 - 0.18) * t;
-      bgCtx.fillStyle = `rgba(${bgR}, ${bgG}, ${bgB}, ${bgA.toFixed(3)})`;
-      
-      bgCtx.fillRect(0, 0, this.W, this.H);
+        const t = this.timePhase;
+        const bgR = Math.round(48 + (18 - 48) * t);
+        const bgG = Math.round(36 + (16 - 36) * t);
+        const bgB = Math.round(44 + (28 - 44) * t);
+        const bgA = 0.18 + (0.34 - 0.18) * t;
+        bgCtx.fillStyle = `rgba(${bgR}, ${bgG}, ${bgB}, ${bgA.toFixed(3)})`;
+        bgCtx.fillRect(0, 0, this.W, this.H);
+      }
 
       const ctx = this.scopeCtx;
       ctx.save();
       ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
       ctx.clearRect(0, 0, this.W, this.H);
 
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(this.cx, this.cy, this.scopeRadius, 0, Math.PI * 2);
-      ctx.clip();
+      if (!this.fullScreenMode) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(this.cx, this.cy, this.scopeRadius, 0, Math.PI * 2);
+        ctx.clip();
+      }
 
       this.world.renderScopeWorld(
         ctx,
@@ -628,36 +663,41 @@
         ctx.fillRect(0, 0, this.W, this.H);
       }
 
-      const vig = ctx.createRadialGradient(
-        this.cx,
-        this.cy,
-        this.scopeRadius * 0.72,
-        this.cx,
-        this.cy,
-        this.scopeRadius
-      );
-      vig.addColorStop(0, "rgba(0, 0, 0, 0)");
-      vig.addColorStop(0.75, "rgba(24, 18, 26, 0.08)");
-      vig.addColorStop(1, "rgba(18, 14, 22, 0.56)");
-      ctx.fillStyle = vig;
-      ctx.beginPath();
-      ctx.arc(this.cx, this.cy, this.scopeRadius, 0, Math.PI * 2);
-      ctx.fill();
+      if (!this.fullScreenMode) {
+        const vig = ctx.createRadialGradient(
+          this.cx,
+          this.cy,
+          this.scopeRadius * 0.72,
+          this.cx,
+          this.cy,
+          this.scopeRadius
+        );
+        vig.addColorStop(0, "rgba(0, 0, 0, 0)");
+        vig.addColorStop(0.75, "rgba(24, 18, 26, 0.08)");
+        vig.addColorStop(1, "rgba(18, 14, 22, 0.56)");
+        ctx.fillStyle = vig;
+        ctx.beginPath();
+        ctx.arc(this.cx, this.cy, this.scopeRadius, 0, Math.PI * 2);
+        ctx.fill();
+      }
 
       this._drawReticle(ctx);
-      ctx.restore();
 
-      ctx.strokeStyle = "rgba(26, 20, 28, 0.88)";
-      ctx.lineWidth = Math.max(3, this.scopeRadius * 0.022);
-      ctx.beginPath();
-      ctx.arc(this.cx, this.cy, this.scopeRadius, 0, Math.PI * 2);
-      ctx.stroke();
+      if (!this.fullScreenMode) {
+        ctx.restore();
 
-      ctx.strokeStyle = "rgba(255, 245, 248, 0.14)";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.arc(this.cx, this.cy, this.scopeRadius - 2, 0, Math.PI * 2);
-      ctx.stroke();
+        ctx.strokeStyle = "rgba(26, 20, 28, 0.88)";
+        ctx.lineWidth = Math.max(3, this.scopeRadius * 0.022);
+        ctx.beginPath();
+        ctx.arc(this.cx, this.cy, this.scopeRadius, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.strokeStyle = "rgba(255, 245, 248, 0.14)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(this.cx, this.cy, this.scopeRadius - 2, 0, Math.PI * 2);
+        ctx.stroke();
+      }
 
       ctx.restore();
     }
@@ -668,38 +708,35 @@
       const cy = this.cy;
       const ts = this.tickScale;
       const t = this.timePhase;
-    
+
       const r = Math.round(32 + (246 - 32) * t);
       const g = Math.round(24 + (234 - 24) * t);
       const b = Math.round(32 + (240 - 32) * t);
-    
+
       const lineAlpha = 0.82 + (0.84 - 0.82) * t;
       const labelAlpha = 0.55 + (0.62 - 0.55) * t;
       const lineColor = `rgba(${r}, ${g}, ${b}, ${lineAlpha.toFixed(3)})`;
       const labelColor = `rgba(${r}, ${g}, ${b}, ${labelAlpha.toFixed(3)})`;
-    
-      // Subtle dark hairline under-stroke that fades in smoothly across dusk/night
-      // so the reticle stays crisp even against mid-tone twilight clouds
       const haloAlpha = Math.min(0.28, Math.max(0, (t - 0.12) * 0.36));
-    
+
       const dotR = Math.round(182 + (246 - 182) * t);
       const dotG = Math.round(62 + (178 - 62) * t);
       const dotB = Math.round(92 + (198 - 92) * t);
       const dotA = 0.85 + (0.9 - 0.85) * t;
-    
+
       ctx.save();
       ctx.lineCap = "butt";
-    
+
       const postStart = R * 0.96;
       const postEnd = R * 0.56;
-    
+
       const ticks = [
         { dist: 100, label: "1", halfW: 5.5 * ts },
         { dist: 200, label: "2", halfW: 8.0 * ts },
         { dist: 300, label: "3", halfW: 10.5 * ts },
         { dist: 400, label: "4", halfW: 13.0 * ts },
       ];
-    
+
       const strokeReticlePaths = (extraW) => {
         ctx.lineWidth = Math.max(1.8, 2.4 * ts) + extraW;
         ctx.beginPath();
@@ -712,7 +749,7 @@
         ctx.moveTo(cx, cy + postEnd);
         ctx.lineTo(cx, cy + postStart);
         ctx.stroke();
-    
+
         ctx.lineWidth = Math.max(1, 1.05 * ts) + extraW;
         ctx.beginPath();
         ctx.moveTo(cx - postEnd, cy);
@@ -720,7 +757,7 @@
         ctx.moveTo(cx, cy - postEnd);
         ctx.lineTo(cx, cy + postEnd);
         ctx.stroke();
-    
+
         ctx.lineWidth = Math.max(1, 1.1 * ts) + extraW;
         for (const tk of ticks) {
           const ty = cy + getCanonicalDrop(tk.dist) * ts;
@@ -730,15 +767,15 @@
           ctx.stroke();
         }
       };
-    
+
       if (haloAlpha > 0.01) {
         ctx.strokeStyle = `rgba(22, 16, 26, ${haloAlpha.toFixed(3)})`;
         strokeReticlePaths(1.3 * ts);
       }
-    
+
       ctx.strokeStyle = lineColor;
       strokeReticlePaths(0);
-    
+
       ctx.fillStyle = labelColor;
       ctx.font = `500 ${Math.round(Math.max(8, 8.5 * ts))}px -apple-system, BlinkMacSystemFont, sans-serif`;
       ctx.textAlign = "left";
@@ -747,12 +784,12 @@
         const ty = cy + getCanonicalDrop(tk.dist) * ts;
         ctx.fillText(tk.label, cx + tk.halfW + 4.5 * ts, ty);
       }
-    
+
       ctx.fillStyle = `rgba(${dotR}, ${dotG}, ${dotB}, ${dotA.toFixed(3)})`;
       ctx.beginPath();
       ctx.arc(cx, cy, Math.max(1.3, 1.5 * ts), 0, Math.PI * 2);
       ctx.fill();
-    
+
       if (this.hitMarkerAlpha > 0.02) {
         const a = this.hitMarkerAlpha;
         const d1 = 6 * ts;
@@ -772,7 +809,7 @@
         ctx.lineTo(cx + d2, cy + d2);
         ctx.stroke();
       }
-    
+
       ctx.restore();
     }
   }
