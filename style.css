@@ -1,8 +1,7 @@
 :root {
-  --scope-size: 90vmin;
   --ink-dark: rgba(34, 28, 36, 0.9);
   --ink-soft: rgba(54, 45, 56, 0.72);
-  --glass-bg: rgba(255, 246, 249, 0.72);
+  --glass-bg: rgba(255, 246, 249, 0.76);
   --glass-border: rgba(120, 96, 108, 0.24);
   --accent: #c86d84;
   --accent-hover: #b85a72;
@@ -26,38 +25,22 @@ body {
   touch-action: none;
 }
 
-#bg-canvas,
 #scope-canvas {
   position: fixed;
   inset: 0;
   width: 100vw;
   height: 100vh;
   display: block;
-}
-
-/* Blurred peripheral world outside the scope circle */
-#bg-canvas {
   z-index: 1;
-  filter: blur(18px) saturate(0.92) brightness(0.9);
-  transform: scale(1.06);
-  pointer-events: none;
-}
-
-#scope-canvas {
-  z-index: 2;
   cursor: crosshair;
 }
 
-/* Centered circle overlay container matching the exact scope diameter */
 #scope-ui {
   position: fixed;
-  left: 50%;
-  top: 50%;
-  width: var(--scope-size);
-  height: var(--scope-size);
-  transform: translate(-50%, -50%);
-  border-radius: 50%;
-  z-index: 3;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
   pointer-events: none;
   overflow: hidden;
   display: flex;
@@ -76,28 +59,29 @@ body {
   letter-spacing: 0.14em;
   text-transform: uppercase;
   font-weight: 500;
-  color: rgba(34, 28, 36, 0.65);
-  background: rgba(255, 250, 252, 0.34);
-  backdrop-filter: blur(4px);
-  padding: 4px 12px;
+  color: rgba(34, 28, 36, 0.68);
+  background: rgba(255, 250, 252, 0.42);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  padding: 5px 14px;
   border-radius: 999px;
   border: 1px solid rgba(90, 75, 86, 0.14);
-  transition: opacity 0.4s ease, color 0.5s ease, background 0.5s ease, border-color 0.5s ease;
+  transition: opacity 0.4s ease, color 0.8s ease, background 0.8s ease, border-color 0.8s ease;
   white-space: nowrap;
 }
 
 body.night-mode .hud {
-  color: rgba(244, 234, 242, 0.78);
-  background: rgba(28, 28, 46, 0.42);
+  color: rgba(244, 234, 242, 0.8);
+  background: rgba(28, 28, 46, 0.48);
   border-color: rgba(235, 215, 232, 0.18);
 }
 
 #hud-top {
-  top: 4.5%;
+  top: max(16px, env(safe-area-inset-top, 16px));
 }
 
 #hud-bottom {
-  bottom: 4.5%;
+  bottom: max(18px, env(safe-area-inset-bottom, 18px));
 }
 
 .dot {
@@ -106,7 +90,7 @@ body.night-mode .hud {
 
 #kill-toast {
   position: absolute;
-  top: 15%;
+  top: 12%;
   left: 50%;
   transform: translateX(-50%);
   font-family: "Hiragino Mincho ProN", "Yu Mincho", Georgia, serif;
@@ -114,7 +98,7 @@ body.night-mode .hud {
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: rgba(42, 30, 38, 0.85);
-  background: rgba(255, 245, 248, 0.62);
+  background: rgba(255, 245, 248, 0.68);
   padding: 5px 14px;
   border-radius: 999px;
   border: 1px solid rgba(160, 100, 118, 0.25);
@@ -124,7 +108,7 @@ body.night-mode .hud {
 
 body.night-mode #kill-toast {
   color: rgba(250, 236, 244, 0.92);
-  background: rgba(34, 32, 54, 0.68);
+  background: rgba(34, 32, 54, 0.72);
   border-color: rgba(226, 185, 206, 0.28);
 }
 
@@ -134,13 +118,15 @@ body.night-mode #kill-toast {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 8%;
+  padding: 20px;
   pointer-events: auto;
   transition: opacity 0.3s ease;
 }
 
 .overlay-card {
-  width: min(390px, 86%);
+  width: min(400px, 90vw);
+  max-height: 90vh;
+  overflow-y: auto;
   background: var(--glass-bg);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -153,7 +139,7 @@ body.night-mode #kill-toast {
 }
 
 body.night-mode .overlay-card {
-  background: rgba(34, 34, 54, 0.78);
+  background: rgba(34, 34, 54, 0.8);
   color: #f4eaf0;
   border-color: rgba(228, 202, 220, 0.2);
 }
@@ -331,30 +317,4 @@ body.night-mode .stat {
 .hidden {
   opacity: 0 !important;
   pointer-events: none !important;
-}
-/* Full-screen clear mode for phones & tablets */
-body.touch-fullscreen #bg-canvas {
-  display: none;
-}
-
-body.touch-fullscreen #scope-ui {
-  left: 0;
-  top: 0;
-  width: 100%;
-  height: 100%;
-  transform: none;
-  border-radius: 0;
-}
-
-body.touch-fullscreen #hud-top {
-  top: max(14px, env(safe-area-inset-top, 14px));
-}
-
-body.touch-fullscreen #hud-bottom {
-  bottom: max(16px, env(safe-area-inset-bottom, 16px));
-}
-
-body.touch-fullscreen .overlay-card {
-  max-height: 90vh;
-  overflow-y: auto;
 }
