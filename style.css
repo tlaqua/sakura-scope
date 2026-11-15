@@ -35,6 +35,10 @@ body {
   cursor: crosshair;
 }
 
+body.is-playing #scope-canvas {
+  cursor: none;
+}
+
 #scope-ui {
   position: fixed;
   inset: 0;
