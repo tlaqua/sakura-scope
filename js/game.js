@@ -18,16 +18,12 @@
 
   class SakuraScopeGame {
     constructor() {
-      this.bgCanvas = document.getElementById("bg-canvas");
-      this.bgCtx = this.bgCanvas.getContext("2d");
-
       this.scopeCanvas = document.getElementById("scope-canvas");
       this.scopeCtx = this.scopeCanvas.getContext("2d");
 
       this.world = new window.SakuraWorld.WorldState();
 
       this.ui = {
-        scopeContainer: document.getElementById("scope-ui"),
         hudTop: document.getElementById("hud-top"),
         hudBottom: document.getElementById("hud-bottom"),
         score: document.getElementById("hud-score"),
@@ -60,13 +56,9 @@
       this.dpr = Math.min(window.devicePixelRatio || 1, 2);
       this.cx = this.W * 0.5;
       this.cy = this.H * 0.5;
-      this.scopeRadius = Math.min(this.W, this.H) * 0.48;
+      this.reticleRadius = Math.min(this.W, this.H) * 0.48;
       this.scopeScale = 1;
       this.tickScale = 1;
-
-      this.coarseQuery = window.matchMedia ? window.matchMedia("(pointer: coarse)") : null;
-      this.fullScreenMode = false;
-      this._detectInputMode();
 
       this.camX = 0;
       this.camY = 0;
@@ -90,7 +82,10 @@
       this.nextShotReadyAt = 0;
       this.toastTimer = null;
 
+      // Hybrid input tracking (Mouse/Touchpad + Touchscreen simultaneously)
       this.pointerLocked = false;
+      this.suppressPauseOnUnlock = false;
+      this.lastInputWasTouch = false;
       this.lastRawPointerX = null;
       this.lastRawPointerY = null;
       this.edgeVelX = 0;
@@ -109,18 +104,6 @@
 
       this.lastFrameTime = performance.now();
       requestAnimationFrame((t) => this._loop(t));
-    }
-
-    _detectInputMode() {
-      const coarse = this.coarseQuery ? this.coarseQuery.matches : false;
-      const smallTouch = navigator.maxTouchPoints > 0 && Math.min(window.innerWidth, window.innerHeight) <= 1024;
-      this._setFullScreenMode(coarse || smallTouch);
-    }
-
-    _setFullScreenMode(enabled) {
-      if (this.fullScreenMode === enabled) return;
-      this.fullScreenMode = enabled;
-      document.body.classList.toggle("touch-fullscreen", enabled);
     }
 
     _loadNumber(key, fallback) {
@@ -145,14 +128,10 @@
       this.cx = this.W * 0.5;
       this.cy = this.H * 0.5;
 
-      const diameter = Math.min(this.W, this.H) * 0.96;
-      this.scopeRadius = diameter * 0.5;
-      this.scopeScale = this.scopeRadius / 240;
-      this.tickScale = this.scopeRadius / 240;
+      this.reticleRadius = Math.min(this.W, this.H) * 0.48;
+      this.scopeScale = this.reticleRadius / 240;
+      this.tickScale = this.reticleRadius / 240;
 
-      this.ui.scopeContainer.style.setProperty("--scope-size", `${diameter}px`);
-      this.bgCanvas.width = Math.floor(this.W);
-      this.bgCanvas.height = Math.floor(this.H);
       this.scopeCanvas.width = Math.floor(this.W * this.dpr);
       this.scopeCanvas.height = Math.floor(this.H * this.dpr);
     }
@@ -160,28 +139,33 @@
     _bindEvents() {
       window.addEventListener("resize", () => this._resize());
 
-      if (this.coarseQuery && this.coarseQuery.addEventListener) {
-        this.coarseQuery.addEventListener("change", () => this._detectInputMode());
-      }
+      // Track whether the most recent button press came from touch vs mouse/touchpad
+      window.addEventListener(
+        "pointerdown",
+        (e) => {
+          this.lastInputWasTouch = e.pointerType === "touch";
+        },
+        { capture: true, passive: true }
+      );
 
       document.getElementById("btn-start").addEventListener("click", (e) => {
         e.stopPropagation();
-        this._startNewRun();
+        this._startNewRun(!this.lastInputWasTouch);
       });
 
       document.getElementById("btn-resume").addEventListener("click", (e) => {
         e.stopPropagation();
-        this._resumeGame();
+        this._resumeGame(!this.lastInputWasTouch);
       });
 
       document.getElementById("btn-restart-pause").addEventListener("click", (e) => {
         e.stopPropagation();
-        this._startNewRun();
+        this._startNewRun(!this.lastInputWasTouch);
       });
 
       document.getElementById("btn-retry").addEventListener("click", (e) => {
         e.stopPropagation();
-        this._startNewRun();
+        this._startNewRun(!this.lastInputWasTouch);
       });
 
       [this.ui.sensTitle, this.ui.sensPause].forEach((slider) => {
@@ -204,20 +188,33 @@
       document.addEventListener("pointerlockchange", () => {
         const locked = document.pointerLockElement === this.scopeCanvas;
         this.pointerLocked = locked;
-        if (!locked && this.state === STATE.PLAYING) {
-          this._pauseGame();
+        if (locked) {
+          this.edgeVelX = 0;
+          this.edgeVelY = 0;
+          this.lastRawPointerX = null;
+          this.lastRawPointerY = null;
+        } else if (this.state === STATE.PLAYING) {
+          if (this.suppressPauseOnUnlock) {
+            this.suppressPauseOnUnlock = false;
+          } else {
+            this._pauseGame();
+          }
         }
       });
 
+      // Mouse / Touchpad movement works ALWAYS (both Pointer-Locked AND Unlocked)
       window.addEventListener("mousemove", (e) => {
-        if (this.state !== STATE.PLAYING) return;
-        if (this.fullScreenMode || performance.now() - this.lastTouchEndAt < 600) return;
+        if (this.state !== STATE.PLAYING || this.touchActive) return;
+
+        // Ignore synthetic mouse events generated right after lifting a touchscreen finger
+        if (e.sourceCapabilities && e.sourceCapabilities.firesTouchEvents) return;
+        if (performance.now() - this.lastTouchEndAt < 250) return;
 
         if (this.pointerLocked) {
           const dx = Math.max(-90, Math.min(90, e.movementX || 0));
           const dy = Math.max(-90, Math.min(90, e.movementY || 0));
           this._panByScreenDelta(dx, dy);
-        } else if (!this.touchActive) {
+        } else {
           if (this.lastRawPointerX !== null) {
             const dx = e.clientX - this.lastRawPointerX;
             const dy = e.clientY - this.lastRawPointerY;
@@ -226,13 +223,12 @@
           this.lastRawPointerX = e.clientX;
           this.lastRawPointerY = e.clientY;
 
-          const ox = (e.clientX - this.cx) / Math.max(1, this.scopeRadius);
-          const oy = (e.clientY - this.cy) / Math.max(1, this.scopeRadius);
-          const dist = Math.hypot(ox, oy);
-          if (dist > 0.72) {
-            const push = Math.min(1, (dist - 0.72) / 0.35);
-            this.edgeVelX = (ox / dist) * push * 360;
-            this.edgeVelY = (oy / dist) * push * 240;
+          // Subtle edge drift when near viewport border without Pointer Lock
+          const nx = (e.clientX - this.cx) / Math.max(1, this.W * 0.5);
+          const ny = (e.clientY - this.cy) / Math.max(1, this.H * 0.5);
+          if (Math.abs(nx) > 0.88 || Math.abs(ny) > 0.88) {
+            this.edgeVelX = Math.abs(nx) > 0.88 ? Math.sign(nx) * Math.min(1, (Math.abs(nx) - 0.88) / 0.12) * 360 : 0;
+            this.edgeVelY = Math.abs(ny) > 0.88 ? Math.sign(ny) * Math.min(1, (Math.abs(ny) - 0.88) / 0.12) * 240 : 0;
           } else {
             this.edgeVelX = 0;
             this.edgeVelY = 0;
@@ -240,35 +236,44 @@
         }
       });
 
+      window.addEventListener("mouseleave", () => {
+        this.edgeVelX = 0;
+        this.edgeVelY = 0;
+        this.lastRawPointerX = null;
+        this.lastRawPointerY = null;
+      });
+
+      // Mouse / Touchpad click to shoot & engage Pointer Lock
       this.scopeCanvas.addEventListener("mousedown", (e) => {
         if (e.button !== 0 || this.state !== STATE.PLAYING) return;
-        if (performance.now() - this.lastTouchEndAt < 450) return;
+        if (e.sourceCapabilities && e.sourceCapabilities.firesTouchEvents) return;
+        if (performance.now() - this.lastTouchEndAt < 350) return;
+
         window.SakuraAudio.init();
-        if (!this.fullScreenMode && !this.pointerLocked && this.scopeCanvas.requestPointerLock) {
-          try {
-            const p = this.scopeCanvas.requestPointerLock();
-            if (p && p.catch) p.catch(() => {});
-          } catch {}
+        if (!this.pointerLocked) {
+          this._requestLockSafely();
         }
         this._attemptShot();
       });
 
-      // Switch seamlessly into clear full-screen mode if played via touch screen
-      window.addEventListener(
-        "touchstart",
-        () => {
-          this._setFullScreenMode(true);
-          this.edgeVelX = 0;
-          this.edgeVelY = 0;
-        },
-        { passive: true }
-      );
-
+      // Touchscreen drag to pan + tap to shoot (works seamlessly alongside touchpad)
       this.scopeCanvas.addEventListener(
         "touchstart",
         (e) => {
           if (this.state !== STATE.PLAYING || this.touchActive) return;
           window.SakuraAudio.init();
+
+          // If touchpad had Pointer Lock active, release it quietly without pausing
+          if (this.pointerLocked) {
+            this.suppressPauseOnUnlock = true;
+            this._releaseLockSafely();
+          }
+
+          this.edgeVelX = 0;
+          this.edgeVelY = 0;
+          this.lastRawPointerX = null;
+          this.lastRawPointerY = null;
+
           const t = e.changedTouches[0];
           this.touchActive = true;
           this.touchId = t.identifier;
@@ -307,6 +312,8 @@
               this.touchActive = false;
               this.touchId = null;
               this.lastTouchEndAt = performance.now();
+              this.lastRawPointerX = null;
+              this.lastRawPointerY = null;
               if (this.state === STATE.PLAYING && this.touchMovedDist < 10) {
                 this._attemptShot();
               }
@@ -330,7 +337,6 @@
     }
 
     _requestLockSafely() {
-      if (this.fullScreenMode) return;
       if (this.scopeCanvas.requestPointerLock) {
         try {
           const p = this.scopeCanvas.requestPointerLock();
@@ -347,7 +353,7 @@
       }
     }
 
-    _startNewRun() {
+    _startNewRun(shouldLockPointer) {
       window.SakuraAudio.init();
       this.world.reset();
 
@@ -374,7 +380,7 @@
       this.state = STATE.PLAYING;
       this._updateOverlayVisibility();
       this._updateHUD();
-      this._requestLockSafely();
+      if (shouldLockPointer) this._requestLockSafely();
     }
 
     _pauseGame() {
@@ -385,7 +391,7 @@
       this._updateOverlayVisibility();
     }
 
-    _resumeGame() {
+    _resumeGame(shouldLockPointer) {
       if (this.state !== STATE.PAUSED) return;
       window.SakuraAudio.init();
       const now = performance.now();
@@ -394,7 +400,7 @@
       this.lastRawPointerY = null;
       this.state = STATE.PLAYING;
       this._updateOverlayVisibility();
-      this._requestLockSafely();
+      if (shouldLockPointer) this._requestLockSafely();
     }
 
     _triggerGameOver(result) {
@@ -567,7 +573,7 @@
         }
         this.timePhase = this.timePhase * this.timePhase * (3 - 2 * this.timePhase);
 
-        if (!this.fullScreenMode && !this.pointerLocked && !this.touchActive) {
+        if (!this.pointerLocked && !this.touchActive) {
           this.camX += (this.edgeVelX * this.sensitivity * dt) / Math.max(0.5, this.scopeScale);
           this.camY += (this.edgeVelY * this.sensitivity * dt) / Math.max(0.5, this.scopeScale);
           this._clampVerticalCam();
@@ -586,7 +592,7 @@
       const windLevel = window.SakuraAudio.getWindLevel(timeSec);
       window.SakuraAudio.updateWind(timeSec, this.timePhase);
 
-      const halfSpanWorldW = (this.W * 0.5) / this.scopeScale + (this.fullScreenMode ? 180 : 0);
+      const halfSpanWorldW = (this.W * 0.5) / this.scopeScale + 180;
       this.world.update(dt, this.camX, this.camY, halfSpanWorldW, this.timePhase, windLevel, this.kills);
 
       if (this.state === STATE.PLAYING) {
@@ -608,41 +614,10 @@
       const renderCamX = this.camX + swayX + this.recoilX;
       const renderCamY = this.camY + swayY + this.recoilY;
 
-      if (!this.fullScreenMode) {
-        const bgCtx = this.bgCtx;
-        bgCtx.clearRect(0, 0, this.W, this.H);
-        this.world.renderPeripheral(
-          bgCtx,
-          this.W,
-          this.H,
-          renderCamX,
-          renderCamY,
-          this.scopeScale * 0.56,
-          this.timePhase,
-          timeSec,
-          windLevel
-        );
-
-        const t = this.timePhase;
-        const bgR = Math.round(48 + (18 - 48) * t);
-        const bgG = Math.round(36 + (16 - 36) * t);
-        const bgB = Math.round(44 + (28 - 44) * t);
-        const bgA = 0.18 + (0.34 - 0.18) * t;
-        bgCtx.fillStyle = `rgba(${bgR}, ${bgG}, ${bgB}, ${bgA.toFixed(3)})`;
-        bgCtx.fillRect(0, 0, this.W, this.H);
-      }
-
       const ctx = this.scopeCtx;
       ctx.save();
       ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
       ctx.clearRect(0, 0, this.W, this.H);
-
-      if (!this.fullScreenMode) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(this.cx, this.cy, this.scopeRadius, 0, Math.PI * 2);
-        ctx.clip();
-      }
 
       this.world.renderScopeWorld(
         ctx,
@@ -663,47 +638,12 @@
         ctx.fillRect(0, 0, this.W, this.H);
       }
 
-      if (!this.fullScreenMode) {
-        const vig = ctx.createRadialGradient(
-          this.cx,
-          this.cy,
-          this.scopeRadius * 0.72,
-          this.cx,
-          this.cy,
-          this.scopeRadius
-        );
-        vig.addColorStop(0, "rgba(0, 0, 0, 0)");
-        vig.addColorStop(0.75, "rgba(24, 18, 26, 0.08)");
-        vig.addColorStop(1, "rgba(18, 14, 22, 0.56)");
-        ctx.fillStyle = vig;
-        ctx.beginPath();
-        ctx.arc(this.cx, this.cy, this.scopeRadius, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
       this._drawReticle(ctx);
-
-      if (!this.fullScreenMode) {
-        ctx.restore();
-
-        ctx.strokeStyle = "rgba(26, 20, 28, 0.88)";
-        ctx.lineWidth = Math.max(3, this.scopeRadius * 0.022);
-        ctx.beginPath();
-        ctx.arc(this.cx, this.cy, this.scopeRadius, 0, Math.PI * 2);
-        ctx.stroke();
-
-        ctx.strokeStyle = "rgba(255, 245, 248, 0.14)";
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.arc(this.cx, this.cy, this.scopeRadius - 2, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-
       ctx.restore();
     }
 
     _drawReticle(ctx) {
-      const R = this.scopeRadius;
+      const R = this.reticleRadius;
       const cx = this.cx;
       const cy = this.cy;
       const ts = this.tickScale;
