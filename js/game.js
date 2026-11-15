@@ -590,7 +590,13 @@
         windLevel
       );
 
-      bgCtx.fillStyle = this.timePhase > 0.5 ? "rgba(18, 16, 28, 0.34)" : "rgba(48, 36, 44, 0.18)";
+      const t = this.timePhase;
+      const bgR = Math.round(48 + (18 - 48) * t);
+      const bgG = Math.round(36 + (16 - 36) * t);
+      const bgB = Math.round(44 + (28 - 44) * t);
+      const bgA = 0.18 + (0.34 - 0.18) * t;
+      bgCtx.fillStyle = `rgba(${bgR}, ${bgG}, ${bgB}, ${bgA.toFixed(3)})`;
+      
       bgCtx.fillRect(0, 0, this.W, this.H);
 
       const ctx = this.scopeCtx;
@@ -661,67 +667,92 @@
       const cx = this.cx;
       const cy = this.cy;
       const ts = this.tickScale;
-
-      const isNight = this.timePhase > 0.5;
-      const lineColor = isNight ? "rgba(246, 234, 240, 0.84)" : "rgba(32, 24, 32, 0.82)";
-      const labelColor = isNight ? "rgba(246, 234, 240, 0.58)" : "rgba(32, 24, 32, 0.55)";
-
+      const t = this.timePhase;
+    
+      const r = Math.round(32 + (246 - 32) * t);
+      const g = Math.round(24 + (234 - 24) * t);
+      const b = Math.round(32 + (240 - 32) * t);
+    
+      const lineAlpha = 0.82 + (0.84 - 0.82) * t;
+      const labelAlpha = 0.55 + (0.62 - 0.55) * t;
+      const lineColor = `rgba(${r}, ${g}, ${b}, ${lineAlpha.toFixed(3)})`;
+      const labelColor = `rgba(${r}, ${g}, ${b}, ${labelAlpha.toFixed(3)})`;
+    
+      // Subtle dark hairline under-stroke that fades in smoothly across dusk/night
+      // so the reticle stays crisp even against mid-tone twilight clouds
+      const haloAlpha = Math.min(0.28, Math.max(0, (t - 0.12) * 0.36));
+    
+      const dotR = Math.round(182 + (246 - 182) * t);
+      const dotG = Math.round(62 + (178 - 62) * t);
+      const dotB = Math.round(92 + (198 - 92) * t);
+      const dotA = 0.85 + (0.9 - 0.85) * t;
+    
       ctx.save();
-      ctx.strokeStyle = lineColor;
-      ctx.fillStyle = labelColor;
       ctx.lineCap = "butt";
-
+    
       const postStart = R * 0.96;
       const postEnd = R * 0.56;
-
-      ctx.lineWidth = Math.max(1.8, 2.4 * ts);
-      ctx.beginPath();
-      ctx.moveTo(cx - postStart, cy);
-      ctx.lineTo(cx - postEnd, cy);
-      ctx.moveTo(cx + postEnd, cy);
-      ctx.lineTo(cx + postStart, cy);
-      ctx.moveTo(cx, cy - postStart);
-      ctx.lineTo(cx, cy - postEnd);
-      ctx.moveTo(cx, cy + postEnd);
-      ctx.lineTo(cx, cy + postStart);
-      ctx.stroke();
-
-      ctx.lineWidth = Math.max(1, 1.05 * ts);
-      ctx.beginPath();
-      ctx.moveTo(cx - postEnd, cy);
-      ctx.lineTo(cx + postEnd, cy);
-      ctx.moveTo(cx, cy - postEnd);
-      ctx.lineTo(cx, cy + postEnd);
-      ctx.stroke();
-
-      ctx.fillStyle = isNight ? "rgba(246, 178, 198, 0.9)" : "rgba(182, 62, 92, 0.85)";
-      ctx.beginPath();
-      ctx.arc(cx, cy, Math.max(1.3, 1.5 * ts), 0, Math.PI * 2);
-      ctx.fill();
-
+    
       const ticks = [
         { dist: 100, label: "1", halfW: 5.5 * ts },
         { dist: 200, label: "2", halfW: 8.0 * ts },
         { dist: 300, label: "3", halfW: 10.5 * ts },
         { dist: 400, label: "4", halfW: 13.0 * ts },
       ];
-
+    
+      const strokeReticlePaths = (extraW) => {
+        ctx.lineWidth = Math.max(1.8, 2.4 * ts) + extraW;
+        ctx.beginPath();
+        ctx.moveTo(cx - postStart, cy);
+        ctx.lineTo(cx - postEnd, cy);
+        ctx.moveTo(cx + postEnd, cy);
+        ctx.lineTo(cx + postStart, cy);
+        ctx.moveTo(cx, cy - postStart);
+        ctx.lineTo(cx, cy - postEnd);
+        ctx.moveTo(cx, cy + postEnd);
+        ctx.lineTo(cx, cy + postStart);
+        ctx.stroke();
+    
+        ctx.lineWidth = Math.max(1, 1.05 * ts) + extraW;
+        ctx.beginPath();
+        ctx.moveTo(cx - postEnd, cy);
+        ctx.lineTo(cx + postEnd, cy);
+        ctx.moveTo(cx, cy - postEnd);
+        ctx.lineTo(cx, cy + postEnd);
+        ctx.stroke();
+    
+        ctx.lineWidth = Math.max(1, 1.1 * ts) + extraW;
+        for (const tk of ticks) {
+          const ty = cy + getCanonicalDrop(tk.dist) * ts;
+          ctx.beginPath();
+          ctx.moveTo(cx - tk.halfW, ty);
+          ctx.lineTo(cx + tk.halfW, ty);
+          ctx.stroke();
+        }
+      };
+    
+      if (haloAlpha > 0.01) {
+        ctx.strokeStyle = `rgba(22, 16, 26, ${haloAlpha.toFixed(3)})`;
+        strokeReticlePaths(1.3 * ts);
+      }
+    
       ctx.strokeStyle = lineColor;
+      strokeReticlePaths(0);
+    
       ctx.fillStyle = labelColor;
-      ctx.lineWidth = Math.max(1, 1.1 * ts);
       ctx.font = `500 ${Math.round(Math.max(8, 8.5 * ts))}px -apple-system, BlinkMacSystemFont, sans-serif`;
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
-
       for (const tk of ticks) {
         const ty = cy + getCanonicalDrop(tk.dist) * ts;
-        ctx.beginPath();
-        ctx.moveTo(cx - tk.halfW, ty);
-        ctx.lineTo(cx + tk.halfW, ty);
-        ctx.stroke();
         ctx.fillText(tk.label, cx + tk.halfW + 4.5 * ts, ty);
       }
-
+    
+      ctx.fillStyle = `rgba(${dotR}, ${dotG}, ${dotB}, ${dotA.toFixed(3)})`;
+      ctx.beginPath();
+      ctx.arc(cx, cy, Math.max(1.3, 1.5 * ts), 0, Math.PI * 2);
+      ctx.fill();
+    
       if (this.hitMarkerAlpha > 0.02) {
         const a = this.hitMarkerAlpha;
         const d1 = 6 * ts;
@@ -741,7 +772,7 @@
         ctx.lineTo(cx + d2, cy + d2);
         ctx.stroke();
       }
-
+    
       ctx.restore();
     }
   }
