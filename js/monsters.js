@@ -12,11 +12,14 @@
     return `rgb(${r},${g},${b})`;
   }
 
-  function rgba(c, a) {
-    return `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+  function blendArr(c1, c2, t) {
+    return [
+      Math.round(lerp(c1[0], c2[0], t)),
+      Math.round(lerp(c1[1], c2[1], t)),
+      Math.round(lerp(c1[2], c2[2], t)),
+    ];
   }
 
-  // Sneaky camouflaged yokai-inspired palettes blended softly into day & night hills
   const PALETTES = {
     bark_lurker: {
       dayBody: [96, 78, 74],
@@ -57,13 +60,10 @@
   };
 
   function createMonster(opts) {
-    // opts: { species, hideMode, worldX, worldY, scale, distance, peekSide, layerId, difficulty }
     const s = opts.scale;
     const peek = opts.peekSide || 1;
     const species = opts.species;
 
-    // Define normalized relative offsets (around monster anchor worldX, worldY)
-    // so both rendering & exposed hitbox stay in exact lockstep.
     let headOffX = 0;
     let headOffY = -28 * s;
     let headR = 8.5 * s;
@@ -120,8 +120,8 @@
       headOffY,
       headR,
       bodyBox,
-      // Subtle camo tightness increases slightly with player kill count
-      camoLevel: Math.min(1, (opts.difficulty || 0) * 0.1),
+      biomeTint: opts.biomeTint || null,
+      camoLevel: Math.min(1, (opts.difficulty || 0) * 0.08),
     };
   }
 
@@ -137,11 +137,8 @@
 
   function testMonsterHit(m, impactWorldX, impactWorldY) {
     if (!m.alive || m.vanishing) return null;
-
-    // Slight fair padding for far layers so sub-pixel edge misses feel great
     const pad = (m.layerId <= 2 ? 3.2 : 1.6) * m.scale;
 
-    // 1) Check Head / Vital core
     const hx = m.worldX + m.headOffX;
     const hy = m.worldY + m.headOffY;
     const hr = m.headR + pad;
@@ -151,7 +148,6 @@
       return { hit: true, headshot: true, hitX: impactWorldX, hitY: impactWorldY };
     }
 
-    // 2) Check Body silhouette box
     const bx = m.worldX + m.bodyBox.x - pad;
     const by = m.worldY + m.bodyBox.y - pad;
     const bw = m.bodyBox.w + pad * 2;
@@ -182,7 +178,6 @@
     }
 
     const darkSocket = timePhase > 0.5 ? "rgba(22, 18, 30, 0.9)" : "rgba(34, 24, 30, 0.88)";
-    // Faint moonlit eye glint every few seconds at night
     const glintWave = Math.max(0, Math.sin(time * 1.4 + seed));
     const pupilAlpha = timePhase > 0.35 ? 0.25 + timePhase * 0.45 * glintWave : 0.22;
     const pupilColor = `rgba(246, 224, 232, ${pupilAlpha.toFixed(2)})`;
@@ -192,7 +187,6 @@
       ctx.beginPath();
       ctx.ellipse(x, y, r * 0.44, r * 0.34, 0, 0, Math.PI * 2);
       ctx.fill();
-
       ctx.fillStyle = pupilColor;
       ctx.beginPath();
       ctx.arc(x + peek * r * 0.08, y, r * 0.14, 0, Math.PI * 2);
@@ -220,7 +214,6 @@
         ctx.beginPath();
         ctx.ellipse(ex, y, r * 0.24, r * 0.28, side * -0.15, 0, Math.PI * 2);
         ctx.fill();
-
         ctx.fillStyle = pupilColor;
         ctx.beginPath();
         ctx.arc(ex + peek * r * 0.05, y, r * 0.08, 0, Math.PI * 2);
@@ -232,14 +225,25 @@
   function drawMonster(ctx, m, sx, sy, pxScale, timePhase, time) {
     if (!m.alive || m.fadeOut <= 0.01) return;
 
-    const pal = PALETTES[m.species] || PALETTES.bark_lurker;
-    const bodyCol = lerpColor(pal.dayBody, pal.nightBody, timePhase);
-    const accentCol = lerpColor(pal.dayAccent, pal.nightAccent, timePhase);
+    const basePal = PALETTES[m.species] || PALETTES.bark_lurker;
+    let dBody = basePal.dayBody;
+    let nBody = basePal.nightBody;
+    let dAcc = basePal.dayAccent;
+    let nAcc = basePal.nightAccent;
+
+    if (m.biomeTint) {
+      dBody = blendArr(dBody, m.biomeTint.day, 0.55);
+      nBody = blendArr(nBody, m.biomeTint.night, 0.55);
+      dAcc = blendArr(dAcc, m.biomeTint.dayAccent || m.biomeTint.day, 0.48);
+      nAcc = blendArr(nAcc, m.biomeTint.nightAccent || m.biomeTint.night, 0.48);
+    }
+
+    const bodyCol = lerpColor(dBody, nBody, timePhase);
+    const accentCol = lerpColor(dAcc, nAcc, timePhase);
     const s = m.scale * pxScale;
     const peek = m.peekSide;
     const isBlinking = m.blinkPhase < 0;
 
-    // Subtle off-rhythm breathing / peeking sway
     const breath = Math.sin(time * 2.1 + m.seed) * 1.1 * s;
     const lean = Math.sin(time * 0.95 + m.seed * 0.7) * 0.045;
 
@@ -249,7 +253,6 @@
     ctx.rotate(lean);
 
     if (m.species === "bark_lurker") {
-      // Hunched silhouette with spindly fingers gripping trunk edge
       ctx.fillStyle = bodyCol;
       ctx.beginPath();
       ctx.moveTo(-6 * s, 2 * s);
@@ -257,12 +260,10 @@
       ctx.quadraticCurveTo(-peek * 4 * s, -22 * s, -6 * s, 2 * s);
       ctx.fill();
 
-      // Peeking oval mask-like head
       ctx.beginPath();
       ctx.ellipse(peek * 5 * s, -30 * s + breath * 0.5, 7.2 * s, 8.8 * s, peek * 0.16, 0, Math.PI * 2);
       ctx.fill();
 
-      // Pale wooden mask stripe / horns
       ctx.fillStyle = accentCol;
       ctx.beginPath();
       ctx.moveTo(peek * 3 * s, -37 * s + breath * 0.5);
@@ -270,7 +271,6 @@
       ctx.lineTo(peek * 9 * s, -35 * s + breath * 0.5);
       ctx.fill();
 
-      // Spindly claws wrapping around bark
       ctx.strokeStyle = bodyCol;
       ctx.lineWidth = Math.max(1, 1.8 * s);
       ctx.lineCap = "round";
@@ -281,10 +281,8 @@
         ctx.lineTo(-peek * 3 * s, fy + 1.2 * s);
         ctx.stroke();
       }
-
       drawEyes(ctx, peek * 5.8 * s, -30.5 * s + breath * 0.5, 6 * s, peek, 3, isBlinking, timePhase, time, m.seed);
     } else if (m.species === "blossom_mimic") {
-      // Nestled among sakura clouds: petal-fringed eerie face
       ctx.fillStyle = bodyCol;
       for (let i = 0; i < 5; i++) {
         const ang = (i / 5) * Math.PI * 2 + time * 0.2;
@@ -300,28 +298,23 @@
         );
         ctx.fill();
       }
-
       ctx.fillStyle = accentCol;
       ctx.beginPath();
       ctx.arc(0, -12 * s + breath * 0.3, 8.2 * s, 0, Math.PI * 2);
       ctx.fill();
 
-      // Hollow crescent grin
       ctx.strokeStyle = timePhase > 0.5 ? "rgba(25, 18, 30, 0.82)" : "rgba(60, 32, 46, 0.78)";
       ctx.lineWidth = Math.max(1, 1.3 * s);
       ctx.beginPath();
       ctx.arc(0, -10.5 * s + breath * 0.3, 4.2 * s, 0.18 * Math.PI, 0.82 * Math.PI);
       ctx.stroke();
-
       drawEyes(ctx, 0, -13.5 * s + breath * 0.3, 6.2 * s, peek, 2, isBlinking, timePhase, time, m.seed);
     } else if (m.species === "lantern_shade") {
-      // Crouching stone-colored horned watcher
       ctx.fillStyle = bodyCol;
       ctx.beginPath();
       ctx.ellipse(peek * 2 * s, -10 * s, 10 * s, 11 * s + breath * 0.25, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Tilted head + jagged ears/horns
       ctx.beginPath();
       ctx.arc(peek * 4 * s, -24 * s + breath * 0.4, 7.6 * s, 0, Math.PI * 2);
       ctx.fill();
@@ -334,16 +327,13 @@
       ctx.lineTo(peek * 8 * s, -39 * s + breath * 0.4);
       ctx.lineTo(peek * 9 * s, -28 * s + breath * 0.4);
       ctx.fill();
-
       drawEyes(ctx, peek * 4.5 * s, -24.5 * s + breath * 0.4, 5.5 * s, peek, 2, isBlinking, timePhase, time, m.seed);
     } else if (m.species === "bamboo_stalker") {
-      // Impossibly tall slender figure tilting head from between poles
       ctx.fillStyle = bodyCol;
       ctx.beginPath();
       ctx.roundRect(-4 * s, -34 * s, 8 * s, 35 * s, 3 * s);
       ctx.fill();
 
-      // Crooked neck & vertical mask head
       ctx.save();
       ctx.translate(peek * 2 * s, -33 * s);
       ctx.rotate(peek * 0.28 + Math.sin(time * 1.3 + m.seed) * 0.05);
@@ -351,11 +341,9 @@
       ctx.beginPath();
       ctx.ellipse(peek * 2 * s, -8 * s, 5.6 * s, 8.8 * s, 0, 0, Math.PI * 2);
       ctx.fill();
-
       drawEyes(ctx, peek * 2 * s, -8.5 * s, 4.8 * s, peek, 1, isBlinking, timePhase, time, m.seed);
       ctx.restore();
     } else if (m.species === "grass_oni") {
-      // Low crouched meadow spirit with stubby curved horns
       ctx.fillStyle = bodyCol;
       ctx.beginPath();
       ctx.ellipse(0, -9 * s + breath * 0.3, 11.5 * s, 9.5 * s, 0, Math.PI, Math.PI * 2);
@@ -364,7 +352,6 @@
       ctx.closePath();
       ctx.fill();
 
-      // Horns
       ctx.fillStyle = accentCol;
       [-1, 1].forEach((side) => {
         ctx.beginPath();
@@ -373,10 +360,8 @@
         ctx.lineTo(side * 7.5 * s, -15 * s + breath * 0.3);
         ctx.fill();
       });
-
       drawEyes(ctx, 0, -13 * s + breath * 0.3, 6.2 * s, peek, 2, isBlinking, timePhase, time, m.seed);
     } else if (m.species === "ridge_phantom") {
-      // Wispy slender distant silhouette
       ctx.fillStyle = bodyCol;
       ctx.beginPath();
       ctx.moveTo(-7 * s, 2 * s);
@@ -385,19 +370,16 @@
       ctx.closePath();
       ctx.fill();
 
-      // Slender eerie tilted head
       ctx.fillStyle = accentCol;
       ctx.beginPath();
       ctx.ellipse(peek * 2 * s, -36 * s + breath * 0.4, 6.2 * s, 7.8 * s, peek * 0.14, 0, Math.PI * 2);
       ctx.fill();
-
       drawEyes(ctx, peek * 2.2 * s, -36.5 * s + breath * 0.4, 4.8 * s, peek, 2, isBlinking, timePhase, time, m.seed);
     }
 
     ctx.restore();
   }
 
-  // Juicy splat particle burst + splatter drops
   function createSplatBurst(worldX, worldY, layerId, scale, isHeadshot, timePhase) {
     const particles = [];
     const count = isHeadshot ? 34 : 24;
@@ -430,7 +412,6 @@
       });
     }
 
-    // Expanding shockwave ring
     particles.push({
       kind: "ring",
       x: worldX,
