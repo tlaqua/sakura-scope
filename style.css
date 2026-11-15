@@ -332,3 +332,29 @@ body.night-mode .stat {
   opacity: 0 !important;
   pointer-events: none !important;
 }
+/* Full-screen clear mode for phones & tablets */
+body.touch-fullscreen #bg-canvas {
+  display: none;
+}
+
+body.touch-fullscreen #scope-ui {
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  transform: none;
+  border-radius: 0;
+}
+
+body.touch-fullscreen #hud-top {
+  top: max(14px, env(safe-area-inset-top, 14px));
+}
+
+body.touch-fullscreen #hud-bottom {
+  bottom: max(16px, env(safe-area-inset-bottom, 16px));
+}
+
+body.touch-fullscreen .overlay-card {
+  max-height: 90vh;
+  overflow-y: auto;
+}
