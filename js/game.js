@@ -3,6 +3,7 @@
 
   const STORAGE_KEY_BEST = "sakura_scope_high_score_v1";
   const STORAGE_KEY_SENS = "sakura_scope_sensitivity_v1";
+  const STORAGE_KEY_ZOOM = "sakura_scope_zoom_v1";
 
   function getCanonicalDrop(distanceMeters) {
     const d = Math.max(0, distanceMeters - 45);
@@ -44,6 +45,12 @@
         goNewBest: document.getElementById("go-new-best"),
         sensTitle: document.getElementById("sens-slider-title"),
         sensPause: document.getElementById("sens-slider-pause"),
+        sensValTitle: document.getElementById("sens-val-title"),
+        sensValPause: document.getElementById("sens-val-pause"),
+        zoomTitle: document.getElementById("zoom-slider-title"),
+        zoomPause: document.getElementById("zoom-slider-pause"),
+        zoomValTitle: document.getElementById("zoom-val-title"),
+        zoomValPause: document.getElementById("zoom-val-pause"),
         muteBtns: [
           document.getElementById("btn-mute-title"),
           document.getElementById("btn-mute-pause"),
@@ -57,6 +64,7 @@
       this.cx = this.W * 0.5;
       this.cy = this.H * 0.5;
       this.reticleRadius = Math.min(this.W, this.H) * 0.48;
+      this.baseScale = 1;
       this.scopeScale = 1;
       this.tickScale = 1;
 
@@ -72,7 +80,8 @@
       this.state = STATE.TITLE;
       this.score = 0;
       this.highScore = this._loadNumber(STORAGE_KEY_BEST, 0);
-      this.sensitivity = this._loadNumber(STORAGE_KEY_SENS, 1.0);
+      this.sensitivity = Math.max(0.4, Math.min(2.2, this._loadNumber(STORAGE_KEY_SENS, 1.0)));
+      this.zoom = Math.max(0.7, Math.min(2.8, this._loadNumber(STORAGE_KEY_ZOOM, 1.0)));
       this.kills = 0;
       this.streak = 0;
       this.longestShot = 0;
@@ -82,7 +91,6 @@
       this.nextShotReadyAt = 0;
       this.toastTimer = null;
 
-      // Hybrid input tracking (Mouse/Touchpad + Touchscreen simultaneously)
       this.pointerLocked = false;
       this.suppressPauseOnUnlock = false;
       this.lastInputWasTouch = false;
@@ -98,6 +106,7 @@
       this._bindEvents();
       this._resize();
       this._syncSensitivityUI();
+      this._syncZoomUI();
       this._updateTitleBest();
 
       this.lastFrameTime = performance.now();
@@ -119,6 +128,12 @@
       } catch {}
     }
 
+    _updateScale() {
+      this.baseScale = this.reticleRadius / 240;
+      this.scopeScale = this.baseScale * this.zoom;
+      this.tickScale = this.scopeScale;
+    }
+
     _resize() {
       this.W = window.innerWidth;
       this.H = window.innerHeight;
@@ -127,8 +142,7 @@
       this.cy = this.H * 0.5;
 
       this.reticleRadius = Math.min(this.W, this.H) * 0.48;
-      this.scopeScale = this.reticleRadius / 240;
-      this.tickScale = this.reticleRadius / 240;
+      this._updateScale();
 
       this.scopeCanvas.width = Math.floor(this.W * this.dpr);
       this.scopeCanvas.height = Math.floor(this.H * this.dpr);
@@ -173,6 +187,26 @@
         });
       });
 
+      const setPreviewingZoom = (slider, active) => {
+        const card = slider.closest(".overlay-card");
+        if (card) card.classList.toggle("previewing-zoom", active);
+      };
+
+      [this.ui.zoomTitle, this.ui.zoomPause].forEach((slider) => {
+        slider.addEventListener("input", (e) => {
+          this.zoom = parseFloat(e.target.value) || 1.0;
+          this._saveNumber(STORAGE_KEY_ZOOM, this.zoom);
+          this._updateScale();
+          this._syncZoomUI();
+          setPreviewingZoom(slider, true);
+        });
+        const endPreview = () => setPreviewingZoom(slider, false);
+        slider.addEventListener("change", endPreview);
+        slider.addEventListener("pointerup", endPreview);
+        slider.addEventListener("touchend", endPreview);
+        slider.addEventListener("pointercancel", endPreview);
+      });
+
       this.ui.muteBtns.forEach((btn) => {
         btn.addEventListener("click", (e) => {
           e.stopPropagation();
@@ -197,7 +231,6 @@
         }
       });
 
-      // Mouse / Touchpad movement works ALWAYS (both Pointer-Locked AND Unlocked)
       window.addEventListener("mousemove", (e) => {
         if (this.state !== STATE.PLAYING || this.touchActive) return;
 
@@ -226,7 +259,6 @@
       document.addEventListener("mouseleave", clearPointerTracking);
       window.addEventListener("blur", clearPointerTracking);
 
-      // Mouse / Touchpad click to shoot & re-engage Pointer Lock
       this.scopeCanvas.addEventListener("mousedown", (e) => {
         if (e.button !== 0 || this.state !== STATE.PLAYING) return;
         if (e.sourceCapabilities && e.sourceCapabilities.firesTouchEvents) return;
@@ -239,7 +271,6 @@
         this._attemptShot();
       });
 
-      // Touchscreen drag to pan + tap to shoot
       this.scopeCanvas.addEventListener(
         "touchstart",
         (e) => {
@@ -304,7 +335,7 @@
     }
 
     _panByScreenDelta(dx, dy) {
-      const factor = (0.72 * this.sensitivity) / Math.max(0.5, this.scopeScale);
+      const factor = (0.72 * this.sensitivity) / Math.max(0.45, this.scopeScale);
       this.camX += dx * factor;
       this.camY += dy * factor;
       this._clampVerticalCam();
@@ -488,8 +519,21 @@
     }
 
     _syncSensitivityUI() {
-      this.ui.sensTitle.value = String(this.sensitivity);
-      this.ui.sensPause.value = String(this.sensitivity);
+      const valStr = String(this.sensitivity);
+      const label = `${this.sensitivity.toFixed(2)}x`;
+      this.ui.sensTitle.value = valStr;
+      this.ui.sensPause.value = valStr;
+      this.ui.sensValTitle.textContent = label;
+      this.ui.sensValPause.textContent = label;
+    }
+
+    _syncZoomUI() {
+      const valStr = String(this.zoom);
+      const label = `${this.zoom.toFixed(2)}x`;
+      this.ui.zoomTitle.value = valStr;
+      this.ui.zoomPause.value = valStr;
+      this.ui.zoomValTitle.textContent = label;
+      this.ui.zoomValPause.textContent = label;
     }
 
     _syncMuteUI() {
@@ -563,7 +607,7 @@
       const windLevel = window.SakuraAudio.getWindLevel(timeSec);
       window.SakuraAudio.updateWind(timeSec, this.timePhase);
 
-      const halfSpanWorldW = (this.W * 0.5) / this.scopeScale + 180;
+      const halfSpanWorldW = (this.W * 0.5) / this.scopeScale + 220;
       this.world.update(dt, this.camX, this.camY, halfSpanWorldW, this.timePhase, windLevel, this.kills);
 
       if (this.state === STATE.PLAYING) {
@@ -617,6 +661,7 @@
       const R = this.reticleRadius;
       const cx = this.cx;
       const cy = this.cy;
+      const bs = this.baseScale;
       const ts = this.tickScale;
       const t = this.timePhase;
 
@@ -638,18 +683,24 @@
       ctx.save();
       ctx.lineCap = "butt";
 
+      const maxAllowY = this.H * 0.43;
+      const allTicks = [
+        { dist: 100, label: "1", halfW: 5.5 * bs },
+        { dist: 200, label: "2", halfW: 8.0 * bs },
+        { dist: 300, label: "3", halfW: 10.5 * bs },
+        { dist: 400, label: "4", halfW: 13.0 * bs },
+      ]
+        .map((tk) => ({ ...tk, yOff: getCanonicalDrop(tk.dist) * ts }))
+        .filter((tk) => tk.yOff <= maxAllowY);
+
       const postStart = R * 0.96;
       const postEnd = R * 0.56;
-
-      const ticks = [
-        { dist: 100, label: "1", halfW: 5.5 * ts },
-        { dist: 200, label: "2", halfW: 8.0 * ts },
-        { dist: 300, label: "3", halfW: 10.5 * ts },
-        { dist: 400, label: "4", halfW: 13.0 * ts },
-      ];
+      const maxTickY = allTicks.length > 0 ? allTicks[allTicks.length - 1].yOff : 0;
+      const bottomThinEnd = Math.min(this.H * 0.44, Math.max(postEnd, maxTickY + 14 * bs));
+      const bottomPostStart = Math.min(this.H * 0.47, Math.max(postStart, bottomThinEnd + 18 * bs));
 
       const strokeReticlePaths = (extraW) => {
-        ctx.lineWidth = Math.max(1.8, 2.4 * ts) + extraW;
+        ctx.lineWidth = Math.max(1.8, 2.4 * bs) + extraW;
         ctx.beginPath();
         ctx.moveTo(cx - postStart, cy);
         ctx.lineTo(cx - postEnd, cy);
@@ -657,21 +708,23 @@
         ctx.lineTo(cx + postStart, cy);
         ctx.moveTo(cx, cy - postStart);
         ctx.lineTo(cx, cy - postEnd);
-        ctx.moveTo(cx, cy + postEnd);
-        ctx.lineTo(cx, cy + postStart);
+        if (bottomPostStart > bottomThinEnd + 2) {
+          ctx.moveTo(cx, cy + bottomThinEnd);
+          ctx.lineTo(cx, cy + bottomPostStart);
+        }
         ctx.stroke();
 
-        ctx.lineWidth = Math.max(1, 1.05 * ts) + extraW;
+        ctx.lineWidth = Math.max(1, 1.05 * bs) + extraW;
         ctx.beginPath();
         ctx.moveTo(cx - postEnd, cy);
         ctx.lineTo(cx + postEnd, cy);
         ctx.moveTo(cx, cy - postEnd);
-        ctx.lineTo(cx, cy + postEnd);
+        ctx.lineTo(cx, cy + bottomThinEnd);
         ctx.stroke();
 
-        ctx.lineWidth = Math.max(1, 1.1 * ts) + extraW;
-        for (const tk of ticks) {
-          const ty = cy + getCanonicalDrop(tk.dist) * ts;
+        ctx.lineWidth = Math.max(1, 1.1 * bs) + extraW;
+        for (const tk of allTicks) {
+          const ty = cy + tk.yOff;
           ctx.beginPath();
           ctx.moveTo(cx - tk.halfW, ty);
           ctx.lineTo(cx + tk.halfW, ty);
@@ -681,34 +734,33 @@
 
       if (haloAlpha > 0.01) {
         ctx.strokeStyle = `rgba(22, 16, 26, ${haloAlpha.toFixed(3)})`;
-        strokeReticlePaths(1.3 * ts);
+        strokeReticlePaths(1.3 * bs);
       }
 
       ctx.strokeStyle = lineColor;
       strokeReticlePaths(0);
 
       ctx.fillStyle = labelColor;
-      ctx.font = `500 ${Math.round(Math.max(8, 8.5 * ts))}px -apple-system, BlinkMacSystemFont, sans-serif`;
+      ctx.font = `500 ${Math.round(Math.max(8, 8.5 * bs))}px -apple-system, BlinkMacSystemFont, sans-serif`;
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
-      for (const tk of ticks) {
-        const ty = cy + getCanonicalDrop(tk.dist) * ts;
-        ctx.fillText(tk.label, cx + tk.halfW + 4.5 * ts, ty);
+      for (const tk of allTicks) {
+        ctx.fillText(tk.label, cx + tk.halfW + 4.5 * bs, cy + tk.yOff);
       }
 
       ctx.fillStyle = `rgba(${dotR}, ${dotG}, ${dotB}, ${dotA.toFixed(3)})`;
       ctx.beginPath();
-      ctx.arc(cx, cy, Math.max(1.3, 1.5 * ts), 0, Math.PI * 2);
+      ctx.arc(cx, cy, Math.max(1.3, 1.5 * bs), 0, Math.PI * 2);
       ctx.fill();
 
       if (this.hitMarkerAlpha > 0.02) {
         const a = this.hitMarkerAlpha;
-        const d1 = 6 * ts;
-        const d2 = 13 * ts;
+        const d1 = 6 * bs;
+        const d2 = 13 * bs;
         ctx.strokeStyle = this.hitMarkerHead
           ? `rgba(220, 74, 108, ${a.toFixed(2)})`
           : `rgba(255, 245, 248, ${a.toFixed(2)})`;
-        ctx.lineWidth = Math.max(1.5, 1.8 * ts);
+        ctx.lineWidth = Math.max(1.5, 1.8 * bs);
         ctx.beginPath();
         ctx.moveTo(cx - d2, cy - d2);
         ctx.lineTo(cx - d1, cy - d1);
