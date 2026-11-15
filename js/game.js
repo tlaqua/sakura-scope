@@ -88,8 +88,6 @@
       this.lastInputWasTouch = false;
       this.lastRawPointerX = null;
       this.lastRawPointerY = null;
-      this.edgeVelX = 0;
-      this.edgeVelY = 0;
       this.touchActive = false;
       this.touchId = null;
       this.touchLastX = 0;
@@ -139,7 +137,6 @@
     _bindEvents() {
       window.addEventListener("resize", () => this._resize());
 
-      // Track whether the most recent button press came from touch vs mouse/touchpad
       window.addEventListener(
         "pointerdown",
         (e) => {
@@ -189,8 +186,6 @@
         const locked = document.pointerLockElement === this.scopeCanvas;
         this.pointerLocked = locked;
         if (locked) {
-          this.edgeVelX = 0;
-          this.edgeVelY = 0;
           this.lastRawPointerX = null;
           this.lastRawPointerY = null;
         } else if (this.state === STATE.PLAYING) {
@@ -206,7 +201,6 @@
       window.addEventListener("mousemove", (e) => {
         if (this.state !== STATE.PLAYING || this.touchActive) return;
 
-        // Ignore synthetic mouse events generated right after lifting a touchscreen finger
         if (e.sourceCapabilities && e.sourceCapabilities.firesTouchEvents) return;
         if (performance.now() - this.lastTouchEndAt < 250) return;
 
@@ -216,34 +210,23 @@
           this._panByScreenDelta(dx, dy);
         } else {
           if (this.lastRawPointerX !== null) {
-            const dx = e.clientX - this.lastRawPointerX;
-            const dy = e.clientY - this.lastRawPointerY;
+            const dx = Math.max(-90, Math.min(90, e.clientX - this.lastRawPointerX));
+            const dy = Math.max(-90, Math.min(90, e.clientY - this.lastRawPointerY));
             this._panByScreenDelta(dx * 1.15, dy * 1.15);
           }
           this.lastRawPointerX = e.clientX;
           this.lastRawPointerY = e.clientY;
-
-          // Subtle edge drift when near viewport border without Pointer Lock
-          const nx = (e.clientX - this.cx) / Math.max(1, this.W * 0.5);
-          const ny = (e.clientY - this.cy) / Math.max(1, this.H * 0.5);
-          if (Math.abs(nx) > 0.88 || Math.abs(ny) > 0.88) {
-            this.edgeVelX = Math.abs(nx) > 0.88 ? Math.sign(nx) * Math.min(1, (Math.abs(nx) - 0.88) / 0.12) * 360 : 0;
-            this.edgeVelY = Math.abs(ny) > 0.88 ? Math.sign(ny) * Math.min(1, (Math.abs(ny) - 0.88) / 0.12) * 240 : 0;
-          } else {
-            this.edgeVelX = 0;
-            this.edgeVelY = 0;
-          }
         }
       });
 
-      window.addEventListener("mouseleave", () => {
-        this.edgeVelX = 0;
-        this.edgeVelY = 0;
+      const clearPointerTracking = () => {
         this.lastRawPointerX = null;
         this.lastRawPointerY = null;
-      });
+      };
+      document.addEventListener("mouseleave", clearPointerTracking);
+      window.addEventListener("blur", clearPointerTracking);
 
-      // Mouse / Touchpad click to shoot & engage Pointer Lock
+      // Mouse / Touchpad click to shoot & re-engage Pointer Lock
       this.scopeCanvas.addEventListener("mousedown", (e) => {
         if (e.button !== 0 || this.state !== STATE.PLAYING) return;
         if (e.sourceCapabilities && e.sourceCapabilities.firesTouchEvents) return;
@@ -256,23 +239,19 @@
         this._attemptShot();
       });
 
-      // Touchscreen drag to pan + tap to shoot (works seamlessly alongside touchpad)
+      // Touchscreen drag to pan + tap to shoot
       this.scopeCanvas.addEventListener(
         "touchstart",
         (e) => {
           if (this.state !== STATE.PLAYING || this.touchActive) return;
           window.SakuraAudio.init();
 
-          // If touchpad had Pointer Lock active, release it quietly without pausing
           if (this.pointerLocked) {
             this.suppressPauseOnUnlock = true;
             this._releaseLockSafely();
           }
 
-          this.edgeVelX = 0;
-          this.edgeVelY = 0;
-          this.lastRawPointerX = null;
-          this.lastRawPointerY = null;
+          clearPointerTracking();
 
           const t = e.changedTouches[0];
           this.touchActive = true;
@@ -312,8 +291,7 @@
               this.touchActive = false;
               this.touchId = null;
               this.lastTouchEndAt = performance.now();
-              this.lastRawPointerX = null;
-              this.lastRawPointerY = null;
+              clearPointerTracking();
               if (this.state === STATE.PLAYING && this.touchMovedDist < 10) {
                 this._attemptShot();
               }
@@ -361,8 +339,6 @@
       this.camY = 20;
       this.recoilX = 0;
       this.recoilY = 0;
-      this.edgeVelX = 0;
-      this.edgeVelY = 0;
       this.lastRawPointerX = null;
       this.lastRawPointerY = null;
 
@@ -386,8 +362,8 @@
     _pauseGame() {
       if (this.state !== STATE.PLAYING) return;
       this.state = STATE.PAUSED;
-      this.edgeVelX = 0;
-      this.edgeVelY = 0;
+      this.lastRawPointerX = null;
+      this.lastRawPointerY = null;
       this._updateOverlayVisibility();
     }
 
@@ -406,6 +382,7 @@
     _triggerGameOver(result) {
       this.state = STATE.GAMEOVER;
       this._releaseLockSafely();
+      this._updateOverlayVisibility();
       this.world.alertAllMonsters();
 
       const isNewBest = this.score > this.highScore && this.score > 0;
@@ -431,7 +408,6 @@
       this.ui.goNewBest.classList.toggle("hidden", !isNewBest);
 
       this._updateTitleBest();
-      this._updateOverlayVisibility();
     }
 
     _attemptShot() {
@@ -534,6 +510,7 @@
       this.ui.overlayGameOver.classList.toggle("hidden", this.state !== STATE.GAMEOVER);
 
       const inPlay = this.state === STATE.PLAYING;
+      document.body.classList.toggle("is-playing", inPlay);
       this.ui.hudTop.classList.toggle("hidden", !inPlay);
       this.ui.hudBottom.classList.toggle("hidden", !inPlay);
     }
@@ -572,12 +549,6 @@
           this.timePhase = 1 - (cycle - 0.84) / 0.16;
         }
         this.timePhase = this.timePhase * this.timePhase * (3 - 2 * this.timePhase);
-
-        if (!this.pointerLocked && !this.touchActive) {
-          this.camX += (this.edgeVelX * this.sensitivity * dt) / Math.max(0.5, this.scopeScale);
-          this.camY += (this.edgeVelY * this.sensitivity * dt) / Math.max(0.5, this.scopeScale);
-          this._clampVerticalCam();
-        }
       } else if (this.state === STATE.TITLE) {
         this.camX += 32 * dt;
         this.camY = 12 + Math.sin(timeSec * 0.25) * 14;
@@ -754,7 +725,13 @@
     }
   }
 
-  window.addEventListener("DOMContentLoaded", () => {
+  function bootSakuraScope() {
     new SakuraScopeGame();
-  });
+  }
+
+  if (document.readyState === "loading") {
+    window.addEventListener("DOMContentLoaded", bootSakuraScope);
+  } else {
+    bootSakuraScope();
+  }
 })();
