@@ -44,6 +44,7 @@
         goLongest: document.getElementById("go-longest"),
         goNewBest: document.getElementById("go-new-best"),
         btnPeek: document.getElementById("btn-peek"),
+        btnShowCard: document.getElementById("btn-show-card"),
         sensTitle: document.getElementById("sens-slider-title"),
         sensPause: document.getElementById("sens-slider-pause"),
         sensValTitle: document.getElementById("sens-val-title"),
@@ -181,20 +182,31 @@
         this._startNewRun(!this.lastInputWasTouch);
       });
 
+const setPeeking = (peeking) => {
+        this.ui.overlayGameOver.classList.toggle("peeking-scene", peeking);
+      };
+
       if (this.ui.btnPeek) {
         this.ui.btnPeek.addEventListener("click", (e) => {
           e.stopPropagation();
-          const peeking = this.ui.overlayGameOver.classList.toggle("peeking-scene");
-          this.ui.btnPeek.textContent = peeking ? "Show Card" : "Hide Card";
+          setPeeking(true);
+        });
+      }
+
+      if (this.ui.btnShowCard) {
+        this.ui.btnShowCard.addEventListener("click", (e) => {
+          e.stopPropagation();
+          setPeeking(false);
         });
       }
 
       this.ui.overlayGameOver.addEventListener("click", (e) => {
-        if (e.target === this.ui.overlayGameOver && this.ui.btnPeek) {
-          const peeking = this.ui.overlayGameOver.classList.toggle("peeking-scene");
-          this.ui.btnPeek.textContent = peeking ? "Show Card" : "Hide Card";
+        if (e.target === this.ui.overlayGameOver) {
+          const isPeeking = this.ui.overlayGameOver.classList.contains("peeking-scene");
+          setPeeking(!isPeeking);
         }
       });
+
 
       [this.ui.sensTitle, this.ui.sensPause].forEach((slider) => {
         slider.addEventListener("input", (e) => {
