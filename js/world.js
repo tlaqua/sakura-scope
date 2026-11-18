@@ -882,88 +882,15 @@
       }
     }
 
-    alertAllMonsters() {
-      for (const layer of LAYERS) {
-        for (const chunk of this.layerMaps.get(layer.id).values()) {
-          if (chunk.monster && chunk.monster.alive) {
-            chunk.monster.vanishing = true;
-          }
-        }
-      }
-    }
-
-    evaluateShot(camX, camY, scopeScale, tickScale, dropCanonicalFn) {
-      const worldPerScreen = 1 / scopeScale;
-
-      for (let i = LAYERS.length - 1; i >= 0; i--) {
-        const layer = LAYERS[i];
-        const map = this.layerMaps.get(layer.id);
-        const aimWorldX = camX * layer.parallax;
-
-        for (const chunk of map.values()) {
-          if (aimWorldX < chunk.x0 - 30 || aimWorldX > chunk.x1 + 30) continue;
-
-          const dropPx = dropCanonicalFn(chunk.dist) * tickScale;
-          const impactWorldY = camY * layer.vParallax + dropPx * worldPerScreen;
-
-          const m = chunk.monster;
-          if (m && m.alive && !m.vanishing) {
-            const blocked = this._checkObstacleBlock(chunk, m, aimWorldX, impactWorldY, layer.scale);
-            if (blocked) {
-              this.impactMarks.push({
-                layerId: layer.id,
-                x: aimWorldX,
-                y: impactWorldY,
-                alpha: 1,
-                color: blocked === "stone" ? "#F7EFEA" : "#C9B19D",
-              });
-              return { hit: false, surface: blocked, distance: chunk.dist };
-            }
-
-            const res = window.SakuraMonsters.testMonsterHit(m, aimWorldX, impactWorldY);
-            if (res) {
-              m.alive = false;
-              this._stampSplatOnAnchor(chunk, m, aimWorldX, impactWorldY);
-              return {
-                hit: true,
-                headshot: res.headshot,
-                distance: m.distance,
-                layerId: layer.id,
-                worldX: aimWorldX,
-                worldY: impactWorldY,
-                scale: layer.scale,
-              };
-            }
-          }
-
-          const propHit = this._checkAnySolidProp(chunk, aimWorldX, impactWorldY, layer.scale);
-          if (propHit) {
-            this.impactMarks.push({
-              layerId: layer.id,
-              x: aimWorldX,
-              y: impactWorldY,
-              alpha: 1,
-              color: propHit === "stone" ? "#F7EFEA" : "#B89A86",
-            });
-            return { hit: false, surface: propHit, distance: chunk.dist };
-          }
-
-          const hillY = this._hillHeightAt(layer, aimWorldX);
-          if (impactWorldY >= hillY) {
-            this.impactMarks.push({
-              layerId: layer.id,
-              x: aimWorldX,
-              y: hillY + 2,
-              alpha: 1,
-              color: "#D9C7B8",
-            });
-            return { hit: false, surface: "earth", distance: chunk.dist };
-          }
-        }
-      }
-
-      return { hit: false, surface: "air", distance: 400 };
-    }
+function updateMonster(m, dt) {
+  m.blinkPhase -= dt;
+  if (m.blinkPhase < -0.14) {
+    m.blinkPhase = 2.6 + Math.random() * 3.8;
+  }
+  if (m.vanishing) {
+    m.fadeOut = Math.max(m.minFade || 0, m.fadeOut - dt * 2.4);
+  }
+}
 
     _checkObstacleBlock(chunk, monster, x, y, s) {
       for (const p of chunk.props) {
