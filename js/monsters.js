@@ -131,7 +131,7 @@
       m.blinkPhase = 2.6 + Math.random() * 3.8;
     }
     if (m.vanishing) {
-      m.fadeOut = Math.max(0, m.fadeOut - dt * 2.8);
+      m.fadeOut = Math.max(m.minFade || 0, m.fadeOut - dt * 2.4);
     }
   }
 
