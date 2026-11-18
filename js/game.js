@@ -43,6 +43,7 @@
         goKills: document.getElementById("go-kills"),
         goLongest: document.getElementById("go-longest"),
         goNewBest: document.getElementById("go-new-best"),
+        btnPeek: document.getElementById("btn-peek"),
         sensTitle: document.getElementById("sens-slider-title"),
         sensPause: document.getElementById("sens-slider-pause"),
         sensValTitle: document.getElementById("sens-val-title"),
@@ -76,6 +77,7 @@
       this.hitMarkerAlpha = 0;
       this.hitMarkerHead = false;
       this.breathPhase = 0;
+      this.missVisual = null;
 
       this.state = STATE.TITLE;
       this.score = 0;
@@ -177,6 +179,21 @@
       document.getElementById("btn-retry").addEventListener("click", (e) => {
         e.stopPropagation();
         this._startNewRun(!this.lastInputWasTouch);
+      });
+
+      if (this.ui.btnPeek) {
+        this.ui.btnPeek.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const peeking = this.ui.overlayGameOver.classList.toggle("peeking-scene");
+          this.ui.btnPeek.textContent = peeking ? "Show Card" : "Hide Card";
+        });
+      }
+
+      this.ui.overlayGameOver.addEventListener("click", (e) => {
+        if (e.target === this.ui.overlayGameOver && this.ui.btnPeek) {
+          const peeking = this.ui.overlayGameOver.classList.toggle("peeking-scene");
+          this.ui.btnPeek.textContent = peeking ? "Show Card" : "Hide Card";
+        }
       });
 
       [this.ui.sensTitle, this.ui.sensPause].forEach((slider) => {
@@ -370,8 +387,12 @@
       this.camY = 20;
       this.recoilX = 0;
       this.recoilY = 0;
+      this.missVisual = null;
       this.lastRawPointerX = null;
       this.lastRawPointerY = null;
+
+      this.ui.overlayGameOver.classList.remove("peeking-scene", "card-top", "card-bottom");
+      if (this.ui.btnPeek) this.ui.btnPeek.textContent = "Hide Card";
 
       this.score = 0;
       this.kills = 0;
@@ -410,11 +431,87 @@
       if (shouldLockPointer) this._requestLockSafely();
     }
 
-    _triggerGameOver(result) {
+    _buildMissFeedback(result) {
+      const nt = result.nearestTarget;
+      const dist = result.distance;
+      let badge = `${dist}m`;
+      let reason = "";
+
+      if (result.surface === "stone" || result.surface === "wood") {
+        const mat = result.surface === "stone" ? "Stone" : "Wood";
+        badge = `× ${dist}m • ${mat}`;
+        if (nt && nt.distance > dist + 35) {
+          reason = `Hit ${mat.toLowerCase()} cover at ${dist}m before reaching the ${nt.distance}m target.`;
+        } else if (nt) {
+          reason = `Clipped ${mat.toLowerCase()} cover at ${dist}m just beside the target.`;
+        } else {
+          reason = `Struck ${mat.toLowerCase()} at ${dist}m—every shadow slipped away.`;
+        }
+      } else if (result.surface === "earth") {
+        badge = `× ${dist}m • Slope`;
+        if (nt && nt.distance > dist + 35) {
+          reason = `Shot dropped into the ${dist}m slope short of the ${nt.distance}m target—aim higher.`;
+        } else if (nt && nt.dyPx > 6) {
+          reason = `Shot dropped low into the ${dist}m slope—use a bit more elevation.`;
+        } else if (nt) {
+          const side = nt.dxPx < 0 ? "left" : "right";
+          reason = `Struck the ${dist}m slope just ${side} of the target.`;
+        } else {
+          reason = `Your shot struck the slope at ${dist}m—not a trace remained.`;
+        }
+      } else if (nt) {
+        if (nt.dyPx < -7) {
+          badge = `× ${nt.distance}m • Too High`;
+          reason = `Shot sailed over the ${nt.distance}m target—aim lower or use a smaller tick.`;
+        } else if (Math.abs(nt.dxPx) > 7) {
+          const side = nt.dxPx < 0 ? "left" : "right";
+          badge = `× ${nt.distance}m • Missed ${side[0].toUpperCase() + side.slice(1)}`;
+          reason = `Shot passed just ${side} of the ${nt.distance}m target.`;
+        } else {
+          badge = `× ${nt.distance}m • Grazing Miss`;
+          reason = `Just grazed past the ${nt.distance}m target.`;
+        }
+      } else {
+        badge = "× 400m+ • Open Sky";
+        reason = "The shot drifted into open sky—no target in line.";
+      }
+
+      return { badge, reason };
+    }
+
+    _triggerGameOver(result, aimX, aimY) {
       this.state = STATE.GAMEOVER;
       this._releaseLockSafely();
+
+      // Lock camera exactly where the trigger was pulled so reticle & miss line match 1:1
+      this.camX = aimX;
+      this.camY = aimY;
+      this.recoilX = 0;
+      this.recoilY = 0;
+
+      const { badge, reason } = this._buildMissFeedback(result);
+      this.missVisual = {
+        layerId: result.layerId,
+        worldX: result.worldX,
+        worldY: result.worldY,
+        badge,
+        target: result.nearestTarget || null,
+      };
+
+      const impScreen = this._projectLayerWorldToScreen(
+        this.missVisual.layerId,
+        this.missVisual.worldX,
+        this.missVisual.worldY,
+        this.camX,
+        this.camY
+      );
+
+      this.ui.overlayGameOver.classList.remove("peeking-scene", "card-top", "card-bottom");
+      this.ui.overlayGameOver.classList.add(impScreen.y > this.cy + 30 ? "card-top" : "card-bottom");
+      if (this.ui.btnPeek) this.ui.btnPeek.textContent = "Hide Card";
+
       this._updateOverlayVisibility();
-      this.world.alertAllMonsters();
+      this.world.alertAllMonsters(true);
 
       const isNewBest = this.score > this.highScore && this.score > 0;
       if (isNewBest) {
@@ -422,16 +519,7 @@
         this._saveNumber(STORAGE_KEY_BEST, this.highScore);
       }
 
-      const surfaceText =
-        result.surface === "stone"
-          ? "The bullet chipped stone or steel—every shadow vanished."
-          : result.surface === "wood"
-          ? "You clipped timber—the scene went silent."
-          : result.surface === "earth"
-          ? "Your shot struck the slope—not a trace remained."
-          : "The shot echoed into open air. Nothing remains.";
-
-      this.ui.goReason.textContent = surfaceText;
+      this.ui.goReason.textContent = reason;
       this.ui.goScore.textContent = String(this.score);
       this.ui.goBest.textContent = String(this.highScore);
       this.ui.goKills.textContent = String(this.kills);
@@ -504,7 +592,7 @@
         const flightMs = Math.min(240, Math.max(40, (result.distance / 1100) * 1000));
         setTimeout(() => {
           window.SakuraAudio.playMiss(result.surface, result.distance);
-          this._triggerGameOver(result);
+          this._triggerGameOver(result, aimX, aimY);
         }, flightMs);
       }
     }
@@ -622,6 +710,15 @@
       }
     }
 
+    _projectLayerWorldToScreen(layerId, worldX, worldY, renderCamX, renderCamY) {
+      const layers = window.SakuraWorld.LAYERS;
+      const layer = layers.find((l) => l.id === layerId) || layers[0];
+      return {
+        x: this.cx + (worldX - renderCamX * layer.parallax) * this.scopeScale,
+        y: this.cy + (worldY - renderCamY * layer.vParallax) * this.scopeScale,
+      };
+    }
+
     _render(timeSec) {
       const windLevel = window.SakuraAudio.getWindLevel(timeSec);
       const swayX = this.state === STATE.PLAYING ? Math.sin(this.breathPhase * 0.9) * 1.4 : 0;
@@ -654,6 +751,124 @@
       }
 
       this._drawReticle(ctx);
+
+      if (this.state === STATE.GAMEOVER && this.missVisual) {
+        this._drawMissOverlay(ctx, renderCamX, renderCamY, timeSec);
+      }
+
+      ctx.restore();
+    }
+
+    _drawMissOverlay(ctx, renderCamX, renderCamY, timeSec) {
+      const mv = this.missVisual;
+      const bs = this.baseScale;
+      const imp = this._projectLayerWorldToScreen(mv.layerId, mv.worldX, mv.worldY, renderCamX, renderCamY);
+      const isNight = this.timePhase > 0.5;
+
+      const accent = isNight ? "rgba(255, 138, 166, 0.95)" : "rgba(196, 48, 86, 0.92)";
+      const halo = isNight ? "rgba(20, 14, 24, 0.72)" : "rgba(255, 248, 250, 0.85)";
+
+      ctx.save();
+
+      // 1) If a monster was nearby, circle its ghosted head & connect to the miss point
+      let tgtScreen = null;
+      if (mv.target) {
+        tgtScreen = this._projectLayerWorldToScreen(
+          mv.target.layerId,
+          mv.target.worldX,
+          mv.target.worldY,
+          renderCamX,
+          renderCamY
+        );
+
+        ctx.save();
+        ctx.setLineDash([3 * bs, 3 * bs]);
+        ctx.strokeStyle = isNight ? "rgba(248, 224, 232, 0.55)" : "rgba(44, 30, 38, 0.45)";
+        ctx.lineWidth = Math.max(1.2, 1.3 * bs);
+        ctx.beginPath();
+        ctx.arc(tgtScreen.x, tgtScreen.y, Math.max(10, 14 * bs), 0, Math.PI * 2);
+        ctx.stroke();
+
+        if (Math.hypot(tgtScreen.x - imp.x, tgtScreen.y - imp.y) > 8) {
+          ctx.beginPath();
+          ctx.moveTo(imp.x, imp.y);
+          ctx.lineTo(tgtScreen.x, tgtScreen.y);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      // 2) Dotted ballistic drop trajectory from center cross to impact point
+      ctx.save();
+      ctx.setLineDash([4 * bs, 4 * bs]);
+      ctx.lineCap = "round";
+
+      ctx.strokeStyle = halo;
+      ctx.lineWidth = Math.max(3, 3.4 * bs);
+      ctx.beginPath();
+      ctx.moveTo(this.cx, this.cy);
+      ctx.lineTo(imp.x, imp.y);
+      ctx.stroke();
+
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = Math.max(1.5, 1.8 * bs);
+      ctx.beginPath();
+      ctx.moveTo(this.cx, this.cy);
+      ctx.lineTo(imp.x, imp.y);
+      ctx.stroke();
+      ctx.restore();
+
+      // 3) Crisp pulsing ring + X at the exact impact / pass point
+      const pulse = 1 + 0.14 * Math.sin(timeSec * 4.2);
+      const mr = Math.max(6, 8 * bs) * pulse;
+      const xr = Math.max(4, 5 * bs);
+
+      ctx.strokeStyle = halo;
+      ctx.lineWidth = Math.max(3, 3.4 * bs);
+      ctx.beginPath();
+      ctx.arc(imp.x, imp.y, mr, 0, Math.PI * 2);
+      ctx.moveTo(imp.x - xr, imp.y - xr);
+      ctx.lineTo(imp.x + xr, imp.y + xr);
+      ctx.moveTo(imp.x + xr, imp.y - xr);
+      ctx.lineTo(imp.x - xr, imp.y + xr);
+      ctx.stroke();
+
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = Math.max(1.6, 1.8 * bs);
+      ctx.beginPath();
+      ctx.arc(imp.x, imp.y, mr, 0, Math.PI * 2);
+      ctx.moveTo(imp.x - xr, imp.y - xr);
+      ctx.lineTo(imp.x + xr, imp.y + xr);
+      ctx.moveTo(imp.x + xr, imp.y - xr);
+      ctx.lineTo(imp.x - xr, imp.y + xr);
+      ctx.stroke();
+
+      // 4) Clean compact pill label beside the impact point (dodging target side if needed)
+      const fontSize = Math.round(Math.max(11, 11.5 * bs));
+      ctx.font = `600 ${fontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
+      const textW = ctx.measureText(mv.badge).width;
+      const padX = 9;
+      const pillW = textW + padX * 2;
+      const pillH = fontSize + 10;
+
+      const placeLeft = tgtScreen ? tgtScreen.x > imp.x : false;
+      let px = placeLeft ? imp.x - mr - 10 - pillW : imp.x + mr + 10;
+      px = Math.max(10, Math.min(this.W - pillW - 10, px));
+      let py = Math.max(12, Math.min(this.H - pillH - 12, imp.y - pillH * 0.5));
+
+      ctx.fillStyle = isNight ? "rgba(28, 26, 44, 0.84)" : "rgba(255, 248, 250, 0.88)";
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.roundRect(px, py, pillW, pillH, 999);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = isNight ? "#F8ECF2" : "#2D1E26";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillText(mv.badge, px + padX, py + pillH * 0.5 + 0.5);
+
       ctx.restore();
     }
 
