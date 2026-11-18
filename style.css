@@ -1,7 +1,7 @@
 :root {
   --ink-dark: rgba(34, 28, 36, 0.9);
   --ink-soft: rgba(54, 45, 56, 0.72);
-  --glass-bg: rgba(255, 246, 249, 0.72);
+  --glass-bg: rgba(255, 246, 249, 0.58);
   --glass-border: rgba(120, 96, 108, 0.24);
   --accent: #c86d84;
   --accent-hover: #b85a72;
@@ -132,15 +132,15 @@ body.night-mode #kill-toast {
   max-height: 90vh;
   overflow-y: auto;
   background: var(--glass-bg);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
   border: 1px solid var(--glass-border);
   border-radius: 22px;
   padding: clamp(18px, 3.2vmin, 28px) clamp(18px, 3.4vmin, 30px);
   text-align: center;
   color: var(--ink-dark);
   box-shadow: 0 18px 45px rgba(72, 46, 58, 0.12);
-  transition: opacity 0.2s ease;
+  transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
 .overlay-card.previewing-zoom {
@@ -148,7 +148,7 @@ body.night-mode #kill-toast {
 }
 
 body.night-mode .overlay-card {
-  background: rgba(34, 34, 54, 0.8);
+  background: rgba(34, 34, 54, 0.64);
   color: #f4eaf0;
   border-color: rgba(228, 202, 220, 0.2);
 }
