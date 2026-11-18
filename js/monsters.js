@@ -114,6 +114,7 @@
       seed: Math.random() * 1000,
       alive: true,
       fadeOut: 1.0,
+      minFade: 0,
       vanishing: false,
       blinkPhase: Math.random() * 4.5,
       headOffX,
