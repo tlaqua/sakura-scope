@@ -349,3 +349,77 @@ body.night-mode .stat {
   opacity: 0 !important;
   pointer-events: none !important;
 }
+
+/* Lighter translucency on Shot Missed + true Hide/Show card toggle */
+#overlay-gameover .overlay-card {
+  background: rgba(255, 246, 249, 0.48);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+
+body.night-mode #overlay-gameover .overlay-card {
+  background: rgba(34, 34, 54, 0.56);
+}
+
+#overlay-gameover.peeking-scene .overlay-card {
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.96);
+}
+
+.btn-show-card {
+  position: fixed;
+  right: max(18px, env(safe-area-inset-right, 18px));
+  bottom: max(18px, env(safe-area-inset-bottom, 18px));
+  appearance: none;
+  background: rgba(255, 246, 249, 0.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  color: var(--ink-dark);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 600;
+  padding: 9px 16px;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.15s ease;
+  box-shadow: 0 6px 18px rgba(48, 30, 38, 0.15);
+}
+
+body.night-mode .btn-show-card {
+  background: rgba(34, 34, 54, 0.78);
+  color: #f4eaf0;
+  border-color: rgba(228, 202, 220, 0.24);
+}
+
+#overlay-gameover.peeking-scene .btn-show-card {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (min-width: 720px) and (min-aspect-ratio: 1/1) {
+  #overlay-gameover {
+    justify-content: flex-end;
+    padding-right: clamp(18px, 4.5vw, 56px);
+  }
+
+  #overlay-gameover .overlay-card {
+    width: min(330px, 38vw);
+  }
+}
+
+@media (max-width: 719px), (max-aspect-ratio: 1/1) {
+  #overlay-gameover.card-bottom {
+    align-items: flex-end;
+    padding-bottom: max(16px, env(safe-area-inset-bottom, 16px));
+  }
+
+  #overlay-gameover.card-top {
+    align-items: flex-start;
+    padding-top: max(16px, env(safe-area-inset-top, 16px));
+  }
+}
